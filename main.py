@@ -5,7 +5,7 @@ import json
 import requests
 import schedule
 import cv2  # RTSP 캡처용 OpenCV
-from google import genai  # 💡 최신 구글 공식 통합 SDK 도입
+from google import genai  # 최신 구글 공식 통합 SDK
 from PIL import Image
 from dotenv import load_dotenv
 
@@ -31,7 +31,7 @@ try:
 except FileNotFoundError:
     raise FileNotFoundError("🚨 cameras.json 파일을 찾을 수 없습니다.")
 
-# 💡 최신 SDK 방식의 Client 초기화
+# 최신 SDK 방식의 Client 초기화
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
@@ -82,7 +82,7 @@ def get_rtsp_thumbnail(rtsp_url, location):
         return None
 
 # ==========================================
-# 🧠 4. Gemini 3 Flash 비전 분석 (최신 SDK 문법)
+# 🧠 4. Gemini 3.1 Flash Lite 비전 분석
 # ==========================================
 def analyze_water_level_with_gemini(image_bytes, location):
     try:
@@ -107,9 +107,9 @@ def analyze_water_level_with_gemini(image_bytes, location):
     5. 정상 측정 가능한 경우 -> '숫자(예: 3.4)'만 반환
     """
     try:
-        # 💡 최신 SDK 문법으로 호출 (gemini-3-flash 모델 사용)
+        # 최적화된 최신 경량 모델 사용
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model='gemini-3.1-flash-lite',
             contents=[prompt, image]
         )
         result_text = response.text.strip()
@@ -130,7 +130,7 @@ def analyze_water_level_with_gemini(image_bytes, location):
         return None
 
 # ==========================================
-# 📤 5. Verkada Helix Event API 전송
+# 📤 5. Verkada Helix Event API 전송 (디버깅 강화)
 # ==========================================
 def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, token):
     print(f"📤 [{location}] Helix로 데이터 전송을 시도합니다...")
@@ -152,11 +152,15 @@ def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, t
     }
     try:
         response = requests.post(HELIX_API_URL, json=payload, headers=headers)
+        
+        # 💡 [디버깅] 우리가 보낸 데이터와 서버의 찐 응답 확인
+        print(f"📦 보낸 데이터: {payload['attributes']}")
+        print(f"📨 서버 상세 응답: {response.text}")
+        
         if response.status_code in [200, 201, 202]:
             print(f"✅ [{location}] 데이터 전송 성공! (수위: {water_level}, 상태: {status})")
         else:
             print(f"❌ [{location}] 전송 실패 (상태코드: {response.status_code})")
-            print(f"❌ 응답 내용: {response.text}")
     except Exception as e:
         print(f"❌ Helix 전송 오류: {e}")
 
