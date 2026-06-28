@@ -109,7 +109,7 @@ def analyze_water_level_with_gemini(image_bytes, location):
     try:
         # 💡 최신 SDK 문법으로 호출 (gemini-3-flash 모델 사용)
         response = client.models.generate_content(
-            model='gemini-3-flash',
+            model='gemini-3-flash-preview',
             contents=[prompt, image]
         )
         result_text = response.text.strip()
