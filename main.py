@@ -31,11 +31,10 @@ try:
 except FileNotFoundError:
     raise FileNotFoundError("🚨 cameras.json 파일을 찾을 수 없습니다.")
 
-# 최신 SDK 방식의 Client 초기화
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 🔐 2. Verkada 단기 API Token 발급 (Helix 전송용)
+# 🔐 2. Verkada 단기 API Token 발급
 # ==========================================
 def get_verkada_token():
     print("🔑 Verkada API Token을 요청합니다...")
@@ -63,11 +62,11 @@ def get_rtsp_thumbnail(rtsp_url, location):
     try:
         cap = cv2.VideoCapture(rtsp_url)
         if not cap.isOpened():
-            print(f"❌ [{location}] RTSP 스트림 연결 실패. (네트워크나 주소를 확인하세요)")
+            print(f"❌ [{location}] RTSP 스트림 연결 실패.")
             return None
 
         ret, frame = cap.read()
-        cap.release()  # 메모리 자원 해제
+        cap.release()
 
         if ret:
             print(f"✅ [{location}] RTSP 이미지 캡처 성공!")
@@ -78,12 +77,23 @@ def get_rtsp_thumbnail(rtsp_url, location):
         print(f"❌ [{location}] 영상 프레임을 가져오지 못했습니다.")
         return None
     except Exception as e:
-        print(f"❌ [{location}] RTSP 캡처 중 시스템 오류: {e}")
+        print(f"❌ [{location}] RTSP 캡처 중 오류: {e}")
         return None
 
 # ==========================================
-# 🧠 4. Gemini 3.1 Flash Lite 비전 분석
+# 🧠 4. Gemini 3.1 Flash Lite 비전 분석 (프롬프트 파일 연동)
 # ==========================================
+def get_prompt_text():
+    """prompt.txt 파일에서 프롬프트를 읽어옵니다."""
+    try:
+        with open("prompt.txt", "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        print("⚠️ prompt.txt 파일을 찾을 수 없어 기본 내장 프롬프트를 사용합니다.")
+        return """이 사진에는 포천대교 중간 윗부분에 설치된 '노란색 수위 측정기'가 있습니다. 
+수면이 닿은 위치를 파악하여 정확하게 읽어주세요.
+[출력 규칙] 정상일 경우 '숫자(예: 3.4)'만 반환, 그 외 NIGHT, RAIN, UNKNOWN, UNDER_1M 반환"""
+
 def analyze_water_level_with_gemini(image_bytes, location):
     try:
         image = Image.open(io.BytesIO(image_bytes))
@@ -91,23 +101,10 @@ def analyze_water_level_with_gemini(image_bytes, location):
         print(f"❌ 이미지 변환 오류: {e}")
         return None
 
-    prompt = """
-    이 사진에는 포천대교 중간 윗부분에 설치된 '노란색 수위 측정기'가 있습니다. 
-    수면이 닿은 위치를 파악하여 정확하게 읽어주세요.
+    # 💡 파일에서 프롬프트 불러오기 (핫 리로드 가능)
+    prompt = get_prompt_text()
     
-    [판독 가이드]
-    - 숫자는 1~6(m)이며, 작은 눈금 한 칸은 0.1m, 중간 눈금은 0.5m 단위입니다.
-    - 소수점 첫째 또는 둘째 자리까지 계산해주세요. (예: 3.4)
-
-    [출력 규칙: 오직 결과문자열 하나만 반환]
-    1. 야간이거나 너무 어두운 경우 -> 'NIGHT'
-    2. 비가 많이 와서 식별 불가능한 경우 -> 'RAIN'
-    3. 기타 이유로 측정 불가인 경우 -> 'UNKNOWN'
-    4. 측정 수위가 1미터(숫자 1) 이하인 경우 -> 'UNDER_1M'
-    5. 정상 측정 가능한 경우 -> '숫자(예: 3.4)'만 반환
-    """
     try:
-        # 최적화된 최신 경량 모델 사용
         response = client.models.generate_content(
             model='gemini-3.1-flash-lite',
             contents=[prompt, image]
@@ -179,10 +176,7 @@ def job():
         
         print(f"\n📍 작업 대상: {loc}")
         
-        if not rtsp_url:
-            print(f"⚠️ [{loc}] RTSP URL이 누락되어 건너뜁니다.")
-            continue
-            
+        if not rtsp_url: continue
         img = get_rtsp_thumbnail(rtsp_url, loc)
         if not img: continue
             
@@ -198,10 +192,9 @@ def job():
 # ⏰ 실행 (1시간 단위 실행)
 # ==========================================
 if __name__ == "__main__":
-    print("🚀 다중 채널 수위 모니터링 앱(최신 SDK + RTSP)이 시작되었습니다. (1시간 간격 실행)")
-    job()  # 최초 실행 시 한 번 바로 작동
+    print("🚀 다중 채널 수위 모니터링 앱(최신 SDK + RTSP + 프롬프트 분리)이 시작되었습니다.")
+    job() 
     
-    # 💡 1시간 주기로 변경 완료!
     schedule.every(1).hours.do(job) 
     
     while True:
