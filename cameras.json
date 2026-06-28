@@ -1,7 +1,7 @@
 [
     {
-        "camera_id": "Pocheon_Bridge_118084",
-        "location": "Pocheon_Bridge_01",
+        "camera_id": "5e3b142e-86a0-40f7-9561-cf88829d5ae9",
+        "location": "Pocheon_Bridge_118084",
         "rtsp_url": "rtsp://192.168.44.19:8554/cctv/118084" 
     }
 ]
