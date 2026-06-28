@@ -4,6 +4,7 @@ import io
 import json
 import requests
 import schedule
+import cv2  # 💡 RTSP 캡처용 OpenCV 추가
 import google.generativeai as genai
 from PIL import Image
 from dotenv import load_dotenv
@@ -33,7 +34,7 @@ except FileNotFoundError:
 genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 🔐 2. Verkada 단기 API Token 발급
+# 🔐 2. Verkada 단기 API Token 발급 (Helix 전송용)
 # ==========================================
 def get_verkada_token():
     print("🔑 Verkada API Token을 요청합니다...")
@@ -54,27 +55,34 @@ def get_verkada_token():
         return None
 
 # ==========================================
-# 📷 3. Verkada 썸네일 가져오기 (디버깅 강화!)
+# 📷 3. RTSP 원본 스트림에서 직접 썸네일 캡처
 # ==========================================
-def get_verkada_thumbnail(camera_id, token):
-    print(f"📸 썸네일 이미지를 Verkada에 요청합니다...")
-    url = f"https://api.verkada.com/cameras/v1/cameras/{camera_id}/snapshot"
-    headers = {
-        "x-verkada-auth": token,
-        "accept": "image/jpeg"
-    }
+def get_rtsp_thumbnail(rtsp_url, location):
+    print(f"📸 [{location}] RTSP 스트림에서 썸네일을 직접 캡처합니다...")
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            print("✅ 썸네일 이미지 다운로드 성공!")
-            return response.content
-        else:
-            # 💡 실패한 진짜 이유를 화면에 출력합니다!
-            print(f"❌ 이미지 가져오기 실패 (상태코드: {response.status_code})")
-            print(f"❌ Verkada 서버 응답: {response.text}")
+        # OpenCV를 사용하여 RTSP 주소로 직접 연결
+        cap = cv2.VideoCapture(rtsp_url)
+        
+        if not cap.isOpened():
+            print(f"❌ [{location}] RTSP 스트림에 연결할 수 없습니다. (주소나 네트워크를 확인하세요)")
             return None
+
+        # 프레임 한 장 읽어오기
+        ret, frame = cap.read()
+        cap.release() # 자원 해제 (매우 중요)
+
+        if ret:
+            print(f"✅ [{location}] RTSP 이미지 캡처 성공!")
+            # OpenCV 이미지를 Gemini가 읽을 수 있는 jpg 바이트 형태로 인코딩
+            success, buffer = cv2.imencode('.jpg', frame)
+            if success:
+                return buffer.tobytes()
+        
+        print(f"❌ [{location}] 영상 프레임을 읽어오지 못했습니다.")
+        return None
+
     except Exception as e:
-        print(f"❌ 네트워크 연결 오류: {e}")
+        print(f"❌ [{location}] RTSP 캡처 중 시스템 오류 발생: {e}")
         return None
 
 # ==========================================
@@ -123,7 +131,7 @@ def analyze_water_level_with_gemini(image_bytes, location):
         return None
 
 # ==========================================
-# 📤 5. Verkada Helix Event API 전송 (디버깅 강화!)
+# 📤 5. Verkada Helix Event API 전송
 # ==========================================
 def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, token):
     print(f"📤 [{location}] Helix로 데이터 전송을 시도합니다...")
@@ -160,28 +168,38 @@ def job():
     current_time_str = time.strftime('%Y-%m-%d %H:%M:%S')
     print(f"\n--- 🔄 수위 통합 모니터링 시작 ({current_time_str}) ---")
     
+    # Helix 전송용 Verkada 토큰만 발급받음
     token = get_verkada_token()
-    if not token: return
+    if not token: 
+        print("⚠️ Verkada 토큰 발급 실패로 전체 프로세스를 중단합니다.")
+        return
     
     for cam in CAMERAS_TO_MONITOR:
-        cam_id, loc = cam["camera_id"], cam["location"]
+        cam_id = cam.get("camera_id")
+        loc = cam.get("location")
+        rtsp_url = cam.get("rtsp_url")
+        
         print(f"\n📍 작업 대상: {loc}")
         
-        # 1. 썸네일 가져오기
-        img = get_verkada_thumbnail(cam_id, token)
+        if not rtsp_url:
+            print(f"⚠️ [{loc}] RTSP URL이 설정되지 않아 건너뜁니다.")
+            continue
+            
+        # 1. RTSP 직접 캡처
+        img = get_rtsp_thumbnail(rtsp_url, loc)
         if not img: 
-            print("⚠️ 이미지가 없어서 Gemini 분석 및 전송을 건너뜁니다.")
+            print(f"⚠️ [{loc}] 이미지가 없어서 Gemini 분석 및 전송을 건너뜁니다.")
             continue
             
         # 2. Gemini 분석
         result = analyze_water_level_with_gemini(img, loc)
         if not result: 
-            print("⚠️ 분석 결과가 없어서 데이터 전송을 건너뜁니다.")
+            print(f"⚠️ [{loc}] 분석 결과가 없어서 데이터 전송을 건너뜁니다.")
             continue
             
         level, status = result
         
-        # 3. Helix 전송
+        # 3. Helix 전송 (원래의 camera_id 사용)
         send_to_verkada_helix(level, status, cam_id, loc, current_time_str, token)
         
         time.sleep(1)
@@ -190,7 +208,7 @@ def job():
 # ⏰ 실행 (로컬 테스트용 1분 단위)
 # ==========================================
 if __name__ == "__main__":
-    print("🚀 다중 채널 수위 모니터링 앱이 시작되었습니다. (1분 간격 실행)")
+    print("🚀 다중 채널 수위 모니터링 앱(RTSP 직접 연결 버전)이 시작되었습니다. (1분 간격 실행)")
     job() 
     
     schedule.every(1).minutes.do(job) 
