@@ -1,5 +1,6 @@
 requests
 schedule
-google-generativeai
+google-genai
 pillow
 python-dotenv
+opencv-python-headless
