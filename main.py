@@ -8,7 +8,7 @@ import google.generativeai as genai
 from PIL import Image
 from dotenv import load_dotenv
 
-# 로컬 테스트용 환경 변수 로드 (Coolify에서는 환경 변수 탭의 설정값이 우선 적용됨)
+# 로컬 테스트용 환경 변수 로드
 load_dotenv()
 
 # ==========================================
@@ -16,8 +16,8 @@ load_dotenv()
 # ==========================================
 VERKADA_TOP_LEVEL_API_KEY = os.getenv("VERKADA_TOP_LEVEL_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-VERKADA_ORG_ID = os.getenv("VERKADA_ORG_ID")               # 예: "61b8824a-14bd-4642-9165-1e7d7b173167"
-HELIX_EVENT_TYPE_UID = os.getenv("HELIX_EVENT_TYPE_UID")   # 예: "c53580b7-018f-4e3e-9380-6fb451dcc852"
+VERKADA_ORG_ID = os.getenv("VERKADA_ORG_ID")               
+HELIX_EVENT_TYPE_UID = os.getenv("HELIX_EVENT_TYPE_UID")   
 
 if not all([VERKADA_TOP_LEVEL_API_KEY, GEMINI_API_KEY, VERKADA_ORG_ID, HELIX_EVENT_TYPE_UID]):
     raise ValueError("🚨 필수 환경 변수가 설정되지 않았습니다.")
@@ -45,6 +45,7 @@ def get_verkada_token():
     try:
         response = requests.post(url, headers=headers)
         if response.status_code == 200:
+            print("✅ 단기 API Token 발급 성공!")
             return response.json().get('token')
         print(f"❌ 토큰 발급 실패: {response.status_code}")
         return None
@@ -53,9 +54,10 @@ def get_verkada_token():
         return None
 
 # ==========================================
-# 📷 3. Verkada 썸네일 가져오기
+# 📷 3. Verkada 썸네일 가져오기 (디버깅 강화!)
 # ==========================================
 def get_verkada_thumbnail(camera_id, token):
+    print(f"📸 썸네일 이미지를 Verkada에 요청합니다...")
     url = f"https://api.verkada.com/cameras/v1/cameras/{camera_id}/snapshot"
     headers = {
         "x-verkada-auth": token,
@@ -64,9 +66,15 @@ def get_verkada_thumbnail(camera_id, token):
     try:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
+            print("✅ 썸네일 이미지 다운로드 성공!")
             return response.content
-        return None
+        else:
+            # 💡 실패한 진짜 이유를 화면에 출력합니다!
+            print(f"❌ 이미지 가져오기 실패 (상태코드: {response.status_code})")
+            print(f"❌ Verkada 서버 응답: {response.text}")
+            return None
     except Exception as e:
+        print(f"❌ 네트워크 연결 오류: {e}")
         return None
 
 # ==========================================
@@ -98,6 +106,7 @@ def analyze_water_level_with_gemini(image_bytes, location):
     try:
         response = model.generate_content([prompt, image])
         result_text = response.text.strip()
+        print(f"🔍 Gemini 원본 결과: {result_text}")
         
         if result_text == 'NIGHT': return -1.0, "NIGHT"
         if result_text == 'RAIN': return -1.0, "RAIN"
@@ -107,15 +116,17 @@ def analyze_water_level_with_gemini(image_bytes, location):
         try:
             return float(result_text), "NORMAL"
         except ValueError:
+            print(f"❌ 정의되지 않은 응답 형태입니다: {result_text}")
             return -1.0, "UNKNOWN"
     except Exception as e:
         print(f"❌ Gemini 분석 오류: {e}")
         return None
 
 # ==========================================
-# 📤 5. Verkada Helix Event API 전송
+# 📤 5. Verkada Helix Event API 전송 (디버깅 강화!)
 # ==========================================
 def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, token):
+    print(f"📤 [{location}] Helix로 데이터 전송을 시도합니다...")
     payload = {
         "event_type_uid": HELIX_EVENT_TYPE_UID,
         "camera_id": camera_id,
@@ -137,7 +148,8 @@ def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, t
         if response.status_code in [200, 201, 202]:
             print(f"✅ [{location}] 데이터 전송 성공! (수위: {water_level}, 상태: {status})")
         else:
-            print(f"❌ [{location}] 전송 실패: {response.text}")
+            print(f"❌ [{location}] 전송 실패 (상태코드: {response.status_code})")
+            print(f"❌ 응답 내용: {response.text}")
     except Exception as e:
         print(f"❌ Helix 전송 오류: {e}")
 
@@ -155,21 +167,32 @@ def job():
         cam_id, loc = cam["camera_id"], cam["location"]
         print(f"\n📍 작업 대상: {loc}")
         
+        # 1. 썸네일 가져오기
         img = get_verkada_thumbnail(cam_id, token)
-        if not img: continue
+        if not img: 
+            print("⚠️ 이미지가 없어서 Gemini 분석 및 전송을 건너뜁니다.")
+            continue
             
+        # 2. Gemini 분석
         result = analyze_water_level_with_gemini(img, loc)
-        if not result: continue
+        if not result: 
+            print("⚠️ 분석 결과가 없어서 데이터 전송을 건너뜁니다.")
+            continue
             
         level, status = result
+        
+        # 3. Helix 전송
         send_to_verkada_helix(level, status, cam_id, loc, current_time_str, token)
+        
         time.sleep(1)
 
+# ==========================================
+# ⏰ 실행 (로컬 테스트용 1분 단위)
+# ==========================================
 if __name__ == "__main__":
     print("🚀 다중 채널 수위 모니터링 앱이 시작되었습니다. (1분 간격 실행)")
     job() 
     
-    # 💡 1분 단위 실행으로 변경됨
     schedule.every(1).minutes.do(job) 
     
     while True:
