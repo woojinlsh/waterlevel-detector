@@ -166,9 +166,11 @@ def job():
         time.sleep(1)
 
 if __name__ == "__main__":
-    print("🚀 다중 채널 수위 모니터링 앱이 시작되었습니다. (1시간 간격 실행)")
+    print("🚀 다중 채널 수위 모니터링 앱이 시작되었습니다. (1분 간격 실행)")
     job() 
-    schedule.every(1).hours.do(job) 
+    
+    # 💡 1분 단위 실행으로 변경됨
+    schedule.every(1).minutes.do(job) 
     
     while True:
         schedule.run_pending()
