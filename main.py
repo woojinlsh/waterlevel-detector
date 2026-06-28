@@ -130,7 +130,7 @@ def analyze_water_level_with_gemini(image_bytes, location):
         return None
 
 # ==========================================
-# 📤 5. Verkada Helix Event API 전송 (디버깅 강화)
+# 📤 5. Verkada Helix Event API 전송
 # ==========================================
 def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, token):
     print(f"📤 [{location}] Helix로 데이터 전송을 시도합니다...")
@@ -152,8 +152,6 @@ def send_to_verkada_helix(water_level, status, camera_id, location, meas_time, t
     }
     try:
         response = requests.post(HELIX_API_URL, json=payload, headers=headers)
-        
-        # 💡 [디버깅] 우리가 보낸 데이터와 서버의 찐 응답 확인
         print(f"📦 보낸 데이터: {payload['attributes']}")
         print(f"📨 서버 상세 응답: {response.text}")
         
@@ -197,13 +195,14 @@ def job():
         time.sleep(1)
 
 # ==========================================
-# ⏰ 실행 (1분 단위 실행)
+# ⏰ 실행 (1시간 단위 실행)
 # ==========================================
 if __name__ == "__main__":
-    print("🚀 다중 채널 수위 모니터링 앱(최신 SDK + RTSP)이 시작되었습니다. (1분 간격 실행)")
-    job() 
+    print("🚀 다중 채널 수위 모니터링 앱(최신 SDK + RTSP)이 시작되었습니다. (1시간 간격 실행)")
+    job()  # 최초 실행 시 한 번 바로 작동
     
-    schedule.every(1).minutes.do(job) 
+    # 💡 1시간 주기로 변경 완료!
+    schedule.every(1).hours.do(job) 
     
     while True:
         schedule.run_pending()
